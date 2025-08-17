@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,13 +17,32 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      # If there are no NuGet packages, this step is harmless
-      - name: Restore (NuGet)
-        run: nuget restore "Video Encode 2.sln" || echo "no packages to restore"
+      # ---- Install vcpkg and integrate with MSBuild ----
+      - name: Install vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg $env:VCPKG_ROOT
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+          & "$env:VCPKG_ROOT\vcpkg.exe" integrate install
+          echo "VCPKG_ROOT=$env:VCPKG_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # ---- Install OpenCV for x64 (MSBuild integration picks it up) ----
+      - name: Install OpenCV (x64)
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install opencv:x64-windows
+
+      # (Optional) lodepng is header-only in many repos; if you need it via vcpkg, uncomment:
+      # - name: Install lodepng
+      #   shell: pwsh
+      #   run: |
+      #     & "$env:VCPKG_ROOT\vcpkg.exe" install lodepng:x64-windows
+
+      # ---- Build the Visual Studio solution (x64 Release) ----
       - name: Build x64 Release
         run: msbuild "Video Encode 2.sln" /p:Configuration=Release /p:Platform=x64 /m
 
+      # ---- Collect the built EXEs from x64\Release ----
       - name: Collect exes
         shell: pwsh
         run: |
