@@ -1,17 +1,14 @@
 #pragma once
-#include "main.h"
-#include <iostream>
 #include <vector>
-#include "lodepng.h"
-#include <fstream>
-#include <bitset>
+#include <string>
+#include <opencv2/opencv.hpp>
+
 using namespace std;
+
+// global variables defined somewhere else
+extern unsigned int width;
+extern unsigned int height;
+extern string directory;
+
+// function declarations
 int generatePNG(vector<unsigned char> image, string outputName);
-vector<unsigned char> generateImageArray(vector<unsigned char> bytes);
-vector<unsigned char> getNthSet(unsigned int n, string fileName);
-void generateVideo();
-void encode();
-void decode();
-void generatePNGSequence(string videoPath);
-vector<unsigned char> PNGToData(string pngImagePath);
-void appendBytesToFile(const vector<unsigned char>& bytes, const string& filename);
