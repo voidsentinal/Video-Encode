@@ -7,394 +7,336 @@
 #include <opencv2/opencv.hpp>
 #include <filesystem>
 #ifdef _WIN32
-#include "win_pick.h"
+#include "win_pick.h"   // ← file/folder pickers (Windows)
 #endif
-
 
 using namespace std;
 using namespace cv;
 
+// --- Paths & global state ---
 const string directory = "images/";
 const string outputDirectory = "output_images/";
-unsigned int width = 1920;
-unsigned int height = 1080;
+
+// 4K frames
+unsigned int width  = 3840;
+unsigned int height = 2160;
+
+// Grid size and derived capacity (unchanged logic)
 unsigned int pixelSize = 4;
 unsigned const int numBytes = ((width / pixelSize) * (height / pixelSize)) / 4;
+
 bool endFile = false;
 unsigned int numPNG = 0;
-const string fileToEncode = "dreamy.mp4";
-const string outputVideo = "videos/output.mp4";
-const string outputDecode = "testfiles/decoded";
+
+// runtime-selected paths (no extension restrictions)
+static string g_inputFilePath;       // file to encode  OR encoded video to decode
+static string g_outputVideoPath;     // where to save encoded .mp4
+static string g_decodedOutputPath;   // where to save decoded bytes
 const int framesPerImage = 1;
-const string outfileExt = ".mp4";
 const int tolerance = 150;
 
+// -------- prototypes --------
+int generatePNG(vector<unsigned char> image, string outputName);
+vector<unsigned char> generateImageArray(vector<unsigned char> bytes);
+vector<unsigned char> getNthSet(unsigned int n, string fileName);
+void generateVideo(const string& outputVideoPath);
+void encode();
+void decode();
+void generatePNGSequence(string videoPath);
+vector<unsigned char> PNGToData(string pngImagePath);
+void appendBytesToFile(const vector<unsigned char>& bytes, const string& filename);
+
 /**
-* Main function of execution, propmts user for decoding/encoding
+* Main (keeps your e/d/b prompt; functions will pop pickers for paths)
 */
 int main() {
-	char input;
-	cout << "Do you want to encode (e) or decode(d) or both (b) : ";
-	input = 'd';
-	cin >> input;
+    char input;
+    cout << "Do you want to encode (e) or decode (d) or both (b): ";
+    input = 'd';
+    cin >> input;
 
-	if (input == 'e') {
-		encode();
-	}
-	else if (input == 'd') {
-		decode();
-	}
-	else if (input == 'b') {
-		encode();
-		decode();
-	}
-	else {
-		cout << "Invalid input" << endl;
-	}
-
-	return 0;
+    if (input == 'e') {
+        encode();
+    }
+    else if (input == 'd') {
+        decode();
+    }
+    else if (input == 'b') {
+        encode();
+        decode();
+    }
+    else {
+        cout << "Invalid input" << endl;
+    }
+    return 0;
 }
 
 /**
 * Generates a PNG from an image vector as outputName
-* 
-* @param image a vector of form {r,g,b,a,r,g,...}
-* @param outputName the output name of the PNG
-* @return 1 if successful
 */
 int generatePNG(vector<unsigned char> image, string outputName)
 {
-	const string outputPath = directory + outputName;
-	if (lodepng::encode(outputPath, image, width, height) != 0) {
-		cout << "Error encoding PNG" << endl;
-		return 1;
-	}
-
-	//cout << "Image saved as " << outputName << endl;
-
-	return 0;
-
-	//if there's an error, display it
-	//if (error) cout << "encoder error " << error << ": " << lodepng_error_text(error) << std::endl;
+    const string outputPath = directory + outputName;
+    if (lodepng::encode(outputPath, image, width, height) != 0) {
+        cout << "Error encoding PNG" << endl;
+        return 1;
+    }
+    return 0;
 }
 
 /**
-* Generates an immage array from an array of bytes (colors depend on bytes)
-*
-* @param bytes a vector of bytes
-* @return a vector of form {r,g,b,a,r,g,...}
+* Generates an image array from a vector of bytes (your original 2-bits per cell coloring)
 */
 vector<unsigned char> generateImageArray(vector<unsigned char> bytes) {
-	vector<unsigned char> image(width * height * 4);
-	int gridPos = 0;
-	for (unsigned int y = 0; y < height; ++y) {
-		for (unsigned int x = 0; x < width; ++x) {
-			unsigned int pixelIndex = (y * width + x) * 4;
+    vector<unsigned char> image(width * height * 4);
+    int gridPos = 0;
+    for (unsigned int y = 0; y < height; ++y) {
+        for (unsigned int x = 0; x < width; ++x) {
+            unsigned int pixelIndex = (y * width + x) * 4;
 
-			//Grid pixel position, pixels are pixelSize*pixelSize in dimension
-			gridPos = (x / pixelSize) + (width / pixelSize) * (y / pixelSize);
+            // position in logical grid (pixelSize x pixelSize cells)
+            gridPos = (x / pixelSize) + (width / pixelSize) * (y / pixelSize);
 
-			//Black and white version, need to change numBytes to account for more space taken up
-			/*if ((gridPos / 8) < bytes.size()) {
-				if (bytes[gridPos / 8] >> (7 - (gridPos % 8)) & 1) {
-					image[pixelIndex] = 0;
-					image[pixelIndex + 1] = 0;
-					image[pixelIndex + 2] = 0;
-					image[pixelIndex + 3] = 255;
-				}
-				else {
-					image[pixelIndex] = 255;
-					image[pixelIndex + 1] = 255;
-					image[pixelIndex + 2] = 255;
-					image[pixelIndex + 3] = 255;
-				}
-			}
-			else {
-				image[pixelIndex] = 255;
-				image[pixelIndex + 1] = 0;
-				image[pixelIndex + 2] = 255;
-				image[pixelIndex + 3] = 255;
-			}*/
-
-			int bits = 0;
-			if ((gridPos / 4) < bytes.size()) {
-				//Takes rightmost 2 bits after bit shifting accounting for grid position
-				bits = bytes[gridPos / 4] >> (6 - ((gridPos % 4) * 2)) & 3;
-				switch (bits) {
-				case 0:
-					image[pixelIndex] = 0;
-					image[pixelIndex + 1] = 0;
-					image[pixelIndex + 2] = 0;
-					image[pixelIndex + 3] = 255;
-					break;
-				case 1:
-					image[pixelIndex] = 255;
-					image[pixelIndex + 1] = 0;
-					image[pixelIndex + 2] = 0;
-					image[pixelIndex + 3] = 255;
-					break;
-				case 2:
-					image[pixelIndex] = 0;
-					image[pixelIndex + 1] = 255;
-					image[pixelIndex + 2] = 0;
-					image[pixelIndex + 3] = 255;
-					break;
-				case 3:
-					image[pixelIndex] = 0;
-					image[pixelIndex + 1] = 0;
-					image[pixelIndex + 2] = 255;
-					image[pixelIndex + 3] = 255;
-					break;
-				}
-			}
-			else {
-				image[pixelIndex] = 255;
-				image[pixelIndex + 1] = 255;
-				image[pixelIndex + 2] = 255;
-				image[pixelIndex + 3] = 255;
-			}
-
-			//Grid lines
-			/*if (x % pixelSize == pixelSize - 1 || y % pixelSize == pixelSize - 1) {
-				image[pixelIndex] = 255;
-				image[pixelIndex + 1] = 255;
-				image[pixelIndex + 2] = 255;
-				image[pixelIndex + 3] = 255;
-			}*/
-		}
-	}
-	return image;
+            int bits = 0;
+            if ((gridPos / 4) < bytes.size()) {
+                bits = bytes[gridPos / 4] >> (6 - ((gridPos % 4) * 2)) & 3;
+                switch (bits) {
+                case 0: // black
+                    image[pixelIndex] = 0;   image[pixelIndex + 1] = 0;   image[pixelIndex + 2] = 0;   image[pixelIndex + 3] = 255; break;
+                case 1: // red
+                    image[pixelIndex] = 255; image[pixelIndex + 1] = 0;   image[pixelIndex + 2] = 0;   image[pixelIndex + 3] = 255; break;
+                case 2: // green
+                    image[pixelIndex] = 0;   image[pixelIndex + 1] = 255; image[pixelIndex + 2] = 0;   image[pixelIndex + 3] = 255; break;
+                case 3: // blue
+                    image[pixelIndex] = 0;   image[pixelIndex + 1] = 0;   image[pixelIndex + 2] = 255; image[pixelIndex + 3] = 255; break;
+                }
+            } else {
+                // white padding = end
+                image[pixelIndex] = 255; image[pixelIndex + 1] = 255; image[pixelIndex + 2] = 255; image[pixelIndex + 3] = 255;
+            }
+        }
+    }
+    return image;
 }
 
 /**
-* Returns the nth set of bytes of size numBytes (number of bytes that will fit within the specified resolution)
-*
-* @param n the set of bytes to return (0 will return 1st png worth and so on)
-* @param fileName the file from which to read the bytes from
-* @return a vector of bytes from the specified reigion of the file
+* Returns the nth set of bytes of size numBytes (number of bytes that fit in one PNG grid)
 */
 vector<unsigned char> getNthSet(unsigned int n, string fileName) {
-	unsigned int bytesToUse = numBytes;
-	vector<unsigned char> result;
+    unsigned int bytesToUse = numBytes;
+    vector<unsigned char> result;
 
-	ifstream file(fileName, ios::binary);
-	if (!file) {
-		cerr << "Failed to open file: " << fileName << endl;
-		return result;
-	}
+    ifstream file(fileName, ios::binary);
+    if (!file) {
+        cerr << "Failed to open file: " << fileName << endl;
+        return result;
+    }
 
-	// Determine the file size
-	file.seekg(0, ios::end);
-	streampos fileSize = file.tellg();
-	file.seekg(0, ios::beg);
+    file.seekg(0, ios::end);
+    streampos fileSize = file.tellg();
+    file.seekg(0, ios::beg);
 
-	// Calculate the starting position of the nth set
-	streampos startPos = n * bytesToUse;
+    streampos startPos = n * bytesToUse;
 
-	// Adjust bytesToUse if necessary
-	if (static_cast<streampos>(startPos) + static_cast<streampos>(bytesToUse) > fileSize) {
-		bytesToUse = fileSize - startPos;
-		endFile = true;
-	}
+    if (static_cast<streampos>(startPos) + static_cast<streampos>(bytesToUse) > fileSize) {
+        bytesToUse = fileSize - startPos;
+        endFile = true;
+    }
 
-	// Seek to the desired position
-	file.seekg(startPos, ios::beg);
+    file.seekg(startPos, ios::beg);
 
-	// Read the bytes into the result vector
-	vector<unsigned char> buffer(bytesToUse);
-	file.read(reinterpret_cast<char*>(buffer.data()), bytesToUse);
-	if (!file) {
-		cerr << "Failed to read bytes from file." << endl;
-		return result;
-	}
+    vector<unsigned char> buffer(bytesToUse);
+    file.read(reinterpret_cast<char*>(buffer.data()), bytesToUse);
+    if (!file) {
+        cerr << "Failed to read bytes from file." << endl;
+        return result;
+    }
 
-	// Copy the read bytes into the result vector
-	result.assign(buffer.begin(), buffer.end());
-
-	return result;
+    result.assign(buffer.begin(), buffer.end());
+    return result;
 }
 
 /**
-* Reads from the directory of generated PNGs from functions above and stitches
-* them together in a video of speficied format, frame rate, etc.
+* Stitches generated PNGs into a video at 30fps to the given output path
 */
-void generateVideo() {
-	cv::VideoWriter video(outputVideo, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), 30, cv::Size(width, height));
+void generateVideo(const string& outputVideoPath) {
+    cv::VideoWriter video(outputVideoPath, cv::VideoWriter::fourcc('m','p','4','v'), 30, cv::Size(width, height));
 
-	if (!video.isOpened()) {
-		cerr << "Failed to create video file: " << outputVideo << endl;
-		return;
-	}
+    if (!video.isOpened()) {
+        cerr << "Failed to create video file: " << outputVideoPath << endl;
+        return;
+    }
 
-	cv::Mat frame;
-	for (int i = 0; i < numPNG; i++) {
-		string imagePath = directory + to_string(i) + ".png";
-		frame = cv::imread(imagePath);
+    cv::Mat frame;
+    for (unsigned int i = 0; i < numPNG; i++) {
+        string imagePath = directory + to_string(i) + ".png";
+        frame = cv::imread(imagePath);
+        if (frame.empty()) break;
+        for (int j = 0; j < framesPerImage; j++) video.write(frame);
+    }
 
-		if (frame.empty())
-			break;
-
-		for (int j = 0; j < framesPerImage; j++)
-			video.write(frame);
-	}
-
-	video.release();
-	cout << "Video created successfully: " << outputVideo << endl;
+    video.release();
+    cout << "Video created successfully: " << outputVideoPath << endl;
 }
 
 /**
-* The function to call for encoding a file
+* Encode: choose input file (ANY type), then choose where to save encoded .mp4
 */
 void encode() {
-	vector<unsigned char> image;
-	vector<unsigned char> bytes;
+    // reset state per run
+    endFile = false;
+    numPNG = 0;
 
-	string filename = "testfiles/" + fileToEncode;
-	//clean image directory
-	filesystem::remove_all(directory);
-	filesystem::create_directory(directory);
+#ifdef _WIN32
+    if (g_inputFilePath.empty()) {
+        if (!pickOpenFile(g_inputFilePath, L"Select a file to ENCODE")) { cout << "Canceled.\n"; return; }
+    }
+    if (g_outputVideoPath.empty()) {
+        string picked;
+        if (pickSaveFile(picked, L"Save encoded video as", L"encoded.mp4")) g_outputVideoPath = picked;
+        else g_outputVideoPath = g_inputFilePath + ".encoded.mp4";
+    }
+#endif
 
-	while (!endFile) {
-		string outputName = to_string(numPNG) + ".png";
-		bytes = getNthSet(numPNG, filename);
-		image = generateImageArray(bytes);
-		generatePNG(image, outputName);
-		numPNG++;
-	}
-	cout << numPNG << " images saved" << endl;
-	generateVideo();
+    // clean/prepare PNG output dir
+    filesystem::remove_all(directory);
+    filesystem::create_directory(directory);
+
+    // chop input into PNGs
+    while (!endFile) {
+        string outputName = to_string(numPNG) + ".png";
+        vector<unsigned char> bytes = getNthSet(numPNG, g_inputFilePath);
+        vector<unsigned char> image = generateImageArray(bytes);
+        generatePNG(image, outputName);
+        numPNG++;
+    }
+    cout << numPNG << " images saved" << endl;
+
+    // stitch to video
+    generateVideo(g_outputVideoPath);
 }
 
 /**
-* The function to call for decoding a file
+* Decode: choose encoded video (.mp4), then choose where to save the recovered file (ANY extension)
 */
-void decode(){
-	vector<unsigned char> bytes;
-	filesystem::remove_all(outputDirectory);
-	generatePNGSequence("videos/output.mp4");
-	filesystem::remove("testfiles/outfile" + outfileExt);
-	string picName;
-	for (int i = 0; i < numPNG; i++) {
-		picName = "output_images/" + to_string(i) + ".png";
-		bytes = PNGToData(picName);
-		appendBytesToFile(bytes, "testfiles/outfile" + outfileExt);
-	}
-	//bytes = PNGToData("output_images/0.png");
-	/*for (auto x : bytes) {
-		cout << x ;
-	}*/
+void decode() {
+    // reset
+    numPNG = 0;
+
+#ifdef _WIN32
+    if (g_inputFilePath.empty()) {
+        if (!pickOpenFile(g_inputFilePath, L"Select encoded .mp4 to DECODE")) { cout << "Canceled.\n"; return; }
+    }
+    if (g_decodedOutputPath.empty()) {
+        string picked;
+        if (pickSaveFile(picked, L"Save decoded file as", L"decoded.bin")) g_decodedOutputPath = picked;
+        else g_decodedOutputPath = g_inputFilePath + ".decoded.bin";
+    }
+#endif
+
+    // remove any previous PNGs
+    filesystem::remove_all(outputDirectory);
+
+    // explode video into PNG sequence (updates numPNG)
+    generatePNGSequence(g_inputFilePath);
+
+    // reconstruct original bytes
+    for (unsigned int i = 0; i < numPNG; i++) {
+        string picName = outputDirectory + to_string(i) + ".png";
+        vector<unsigned char> bytes = PNGToData(picName);
+        appendBytesToFile(bytes, g_decodedOutputPath);
+    }
 }
 
 /**
-* Generates a sequence of PNGs from a specified video path
-*
-* @param videoPath the path of the video
+* Split a video into sequential PNG frames into outputDirectory
 */
 void generatePNGSequence(string videoPath) {
+    VideoCapture video(videoPath);
+    if (!video.isOpened()) {
+        cerr << "Error opening video file: " << videoPath << endl;
+        return;
+    }
 
-	VideoCapture video(videoPath);
-	if (!video.isOpened())
-	{
-		cerr << "Error opening video file: " << videoPath << endl;
-		return;
-	}
+    int frameCount = static_cast<int>(video.get(CAP_PROP_FRAME_COUNT));
+    int frameNumber = 0;
 
-	int frameCount = static_cast<int>(video.get(CAP_PROP_FRAME_COUNT));
-	int frameNumber = 0;
+    filesystem::create_directory(outputDirectory);
 
-	// Create the output directory if it doesn't exist
-	filesystem::create_directory(outputDirectory);
+    while (frameNumber < frameCount) {
+        Mat frame;
+        if (!video.read(frame)) {
+            cerr << "Error reading frame " << frameNumber << " from video." << endl;
+            break;
+        }
+        string outputName = outputDirectory + to_string(frameNumber) + ".png";
+        if (!imwrite(outputName, frame)) {
+            cerr << "Error saving frame " << frameNumber << " as PNG." << endl;
+        }
+        frameNumber++;
+    }
 
-	while (frameNumber < frameCount)
-	{
-		Mat frame;
-		if (!video.read(frame))
-		{
-			cerr << "Error reading frame " << frameNumber << " from video." << endl;
-			break;
-		}
-
-		string outputName = outputDirectory + to_string(frameNumber) + ".png";
-		if (!imwrite(outputName, frame))
-		{
-			cerr << "Error saving frame " << frameNumber << " as PNG." << endl;
-		}
-
-		frameNumber++;
-	}
-
-	video.release();
-
-	cout << "PNG sequence generated successfully. Total frames: " << frameNumber << endl;
-	numPNG = frameNumber;
+    video.release();
+    cout << "PNG sequence generated successfully. Total frames: " << frameNumber << endl;
+    numPNG = frameNumber;
 }
 
 /**
-* Converts a PNG from the generatePNGSequence back into a vector of bytes
-*
-* @param pngImagePath the path to the png image
-* @return a vector of bytes correpsonding to the png image
+* Convert a single PNG back to bytes (your original color mapping)
 */
 vector<unsigned char> PNGToData(string pngImagePath) {
-	vector<unsigned char> bytes;
-	unsigned char byte = 0;
-	Mat image = imread(pngImagePath);
-	if (image.empty())
-	{
-		cerr << "Error reading image: " << pngImagePath << endl;
-		return bytes;
-	}
+    vector<unsigned char> bytes;
+    unsigned char byte = 0;
+    Mat image = imread(pngImagePath);
+    if (image.empty()) {
+        cerr << "Error reading image: " << pngImagePath << endl;
+        return bytes;
+    }
 
-	Vec3b color;
-	int byteCounter = 0;
-	for (int y = pixelSize / 2; y < image.rows; y += pixelSize) {
-		for (int x = pixelSize / 2; x < image.cols; x += pixelSize) {
-			color = image.at<Vec3b>(y, x);
-			byte = byte << 2;
-			//White marks the end of the file
-			if (static_cast<int>(color[0]) > tolerance && static_cast<int>(color[1]) > tolerance && static_cast<int>(color[2]) > tolerance) {
-				return bytes;
-			}
-			//Red, 01
-			else if (static_cast<int>(color[2]) > tolerance) { byte |= 1; }
-			//Green, 11
-			else if (static_cast<int>(color[0]) > tolerance) { byte |= 3; }
-			//Blue, 10
-			else if (static_cast<int>(color[1]) > tolerance) { byte |= 2; }
-			//Black, 00, automatically occurs in byte from the double bit shift
+    Vec3b color;
+    int byteCounter = 0;
+    for (int y = pixelSize / 2; y < image.rows; y += pixelSize) {
+        for (int x = pixelSize / 2; x < image.cols; x += pixelSize) {
+            color = image.at<Vec3b>(y, x);
+            byte = byte << 2;
 
-			if (byteCounter == 3) {
-				bytes.push_back(byte);
-				byteCounter = 0;
-			}
-			else { byteCounter++; }
-		}
-	}
-	return bytes;
+            // White marks end-of-file
+            if (static_cast<int>(color[0]) > tolerance &&
+                static_cast<int>(color[1]) > tolerance &&
+                static_cast<int>(color[2]) > tolerance) {
+                return bytes;
+            }
+            // Red 01
+            else if (static_cast<int>(color[2]) > tolerance) { byte |= 1; }
+            // Green 11
+            else if (static_cast<int>(color[0]) > tolerance) { byte |= 3; }
+            // Blue 10
+            else if (static_cast<int>(color[1]) > tolerance) { byte |= 2; }
+            // Black 00 (implicit)
+
+            if (byteCounter == 3) {
+                bytes.push_back(byte);
+                byteCounter = 0;
+            } else {
+                byteCounter++;
+            }
+        }
+    }
+    return bytes;
 }
 
 /**
-* Appends bytes to the end of a specified file
-*
-* @param bytes the bytes to append to a file
-* @param filename the file name of which to append the bytes to
+* Append bytes to end of a file (create if missing)
 */
-void appendBytesToFile(const vector<unsigned char>& bytes, const string& filename)
-{
-	// Open the file in binary append mode to add bytes at the end
-	ofstream file(filename, ios::binary | ios::app);
-	if (!file)
-	{
-		cerr << "Error opening file: " << filename << endl;
-		return;
-	}
-
-	// Write the bytes to the file
-	file.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-	if (!file)
-	{
-		cerr << "Error writing bytes to file: " << filename << endl;
-	}
-
-	file.close();
+void appendBytesToFile(const vector<unsigned char>& bytes, const string& filename) {
+    ofstream file(filename, ios::binary | ios::app);
+    if (!file) {
+        cerr << "Error opening file: " << filename << endl;
+        return;
+    }
+    file.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    if (!file) {
+        cerr << "Error writing bytes to file: " << filename << endl;
+    }
+    file.close();
 }
