@@ -18,16 +18,14 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Video encode\Video encode\lodepng-master\lodepng-master\lodepng.cpp">
-      <Filter>Source Files</Filter>
+    <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="main.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Video encode\Video encode\lodepng-master\lodepng-master\lodepng.h">
-      <Filter>Header Files</Filter>
+    <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
