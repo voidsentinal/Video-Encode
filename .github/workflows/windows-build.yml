@@ -17,32 +17,33 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      # ---- Install vcpkg and integrate with MSBuild ----
+      # --- Install vcpkg in a known path and integrate with MSBuild ---
       - name: Install vcpkg
         shell: pwsh
         run: |
-          git clone https://github.com/microsoft/vcpkg $env:VCPKG_ROOT
-          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
-          & "$env:VCPKG_ROOT\vcpkg.exe" integrate install
-          echo "VCPKG_ROOT=$env:VCPKG_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $Env:VCPKG_ROOT = "$env:RUNNER_TEMP\vcpkg"
+          git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
+          cmd /c "$Env:VCPKG_ROOT\bootstrap-vcpkg.bat -disableMetrics"
+          & "$Env:VCPKG_ROOT\vcpkg.exe" integrate install
+          "VCPKG_ROOT=$Env:VCPKG_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # ---- Install OpenCV for x64 (MSBuild integration picks it up) ----
+      # --- Install OpenCV for x64 (needed by the project) ---
       - name: Install OpenCV (x64)
         shell: pwsh
         run: |
           & "$env:VCPKG_ROOT\vcpkg.exe" install opencv:x64-windows
 
-      # (Optional) lodepng is header-only in many repos; if you need it via vcpkg, uncomment:
+      # If you eventually need lodepng via vcpkg, uncomment:
       # - name: Install lodepng
       #   shell: pwsh
       #   run: |
       #     & "$env:VCPKG_ROOT\vcpkg.exe" install lodepng:x64-windows
 
-      # ---- Build the Visual Studio solution (x64 Release) ----
+      # --- Build the solution in Release|x64 ---
       - name: Build x64 Release
         run: msbuild "Video Encode 2.sln" /p:Configuration=Release /p:Platform=x64 /m
 
-      # ---- Collect the built EXEs from x64\Release ----
+      # --- Collect built EXEs from x64\Release ---
       - name: Collect exes
         shell: pwsh
         run: |
