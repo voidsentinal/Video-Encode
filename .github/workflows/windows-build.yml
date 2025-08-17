@@ -1,0 +1,25 @@
+name: Windows Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Build with MSBuild
+      run: |
+        msbuild "Video Encode 2/Video Encode 2.sln" /p:Configuration=Release /p:Platform=x64
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: exe-build
+        path: "Video Encode 2/x64/Release/*.exe"
