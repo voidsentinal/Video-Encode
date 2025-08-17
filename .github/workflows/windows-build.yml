@@ -4,22 +4,37 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Set up MSVC
-      uses: ilammy/msvc-dev-cmd@v1
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
 
-    - name: Build with MSBuild
-      run: |
-        msbuild "Video Encode 2/Video Encode 2.sln" /p:Configuration=Release /p:Platform=x64
+      # If there are no NuGet packages, this step is harmless
+      - name: Restore (NuGet)
+        run: nuget restore "Video Encode 2.sln" || echo "no packages to restore"
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: exe-build
-        path: "Video Encode 2/x64/Release/*.exe"
+      - name: Build x64 Release
+        run: msbuild "Video Encode 2.sln" /p:Configuration=Release /p:Platform=x64 /m
+
+      - name: Collect exes
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Get-ChildItem -Recurse -Path "Video Encode 2" -Include *.exe -File |
+            Where-Object { $_.FullName -match "x64\\Release" } |
+            Copy-Item -Destination dist
+          Get-ChildItem dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/*
+          if-no-files-found: error
