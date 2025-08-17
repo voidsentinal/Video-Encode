@@ -6,6 +6,10 @@
 #include <bitset>
 #include <opencv2/opencv.hpp>
 #include <filesystem>
+#ifdef _WIN32
+#include "win_pick.h"
+#endif
+
 
 using namespace std;
 using namespace cv;
