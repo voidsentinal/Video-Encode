@@ -149,12 +149,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\Video encode\Video encode\lodepng-master\lodepng-master\lodepng.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Video encode\Video encode\lodepng-master\lodepng-master\lodepng.h" />
-    <ClInclude Include="main.h" />
+     <ClInclude Include="main.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitignore" />
